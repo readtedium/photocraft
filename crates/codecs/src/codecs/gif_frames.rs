@@ -34,6 +34,17 @@ pub struct AnimationFrame {
 /// ([`MAX_GIF_FRAMES`]) and the total decoded bytes are checked against `opts.limits` before
 /// each frame is kept.
 pub fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>, CodecError> {
+    let (frames, more) = decode_prefix(bytes, opts, MAX_GIF_FRAMES)?;
+    if more {
+        return Err(CodecError::LimitExceeded(format!("more than {MAX_GIF_FRAMES} frames")));
+    }
+    Ok(frames)
+}
+
+/// The first `keep` frames of a GIF, and whether it has more. Decoding stops after frame `keep`, so a
+/// caller that can only hold `keep` frames never decodes (or holds) the rest. The limits and the
+/// handling of a damaged frame are those of [`decode`].
+pub fn decode_prefix(bytes: &[u8], opts: &DecodeOptions, keep: usize) -> Result<(Vec<AnimationFrame>, bool), CodecError> {
     let limits = &opts.limits;
     let map = |e: image::ImageError| match e {
         image::ImageError::Limits(l) => CodecError::LimitExceeded(l.to_string()),
@@ -52,6 +63,7 @@ pub fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>,
 
     let mut out: Vec<AnimationFrame> = Vec::new();
     let mut damaged = false;
+    let mut more = false;
     for frame in decoder.into_frames() {
         let frame = match frame {
             Ok(f) => f,
@@ -61,8 +73,9 @@ pub fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>,
                 break;
             }
         };
-        if out.len() >= MAX_GIF_FRAMES {
-            return Err(CodecError::LimitExceeded(format!("more than {MAX_GIF_FRAMES} frames")));
+        if out.len() >= keep {
+            more = true;
+            break;
         }
         if frame_bytes.saturating_mul(out.len() as u64 + 1) > limits.max_alloc {
             return Err(CodecError::LimitExceeded(format!("{} frames of {w}x{h} exceed max_alloc {}", out.len() + 1, limits.max_alloc)));
@@ -75,5 +88,28 @@ pub fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>,
     if damaged && let Some(first) = out.first_mut() {
         first.image.warnings.push(DecodeWarning::Truncated { format: Format::Gif });
     }
-    Ok(out)
+    Ok((out, more))
+}
+
+#[cfg(test)]
+mod prefix_tests {
+    use super::*;
+    use crate::web::{GifFrame, encode_gif_animated};
+
+    fn gif(n: usize) -> Vec<u8> {
+        let frames: Vec<GifFrame> = (0..n).map(|i| GifFrame { indices: vec![0], palette: vec![[i as u8, 0, 0]], transparent: None, delay_cs: 2 }).collect();
+        encode_gif_animated(1, 1, &frames, true).unwrap()
+    }
+
+    #[test]
+    fn a_prefix_stops_decoding_and_says_whether_there_was_more() {
+        let opts = DecodeOptions::default();
+        let (f, more) = decode_prefix(&gif(5), &opts, 3).unwrap();
+        assert_eq!((f.len(), more), (3, true));
+        let (f, more) = decode_prefix(&gif(5), &opts, 5).unwrap();
+        assert_eq!((f.len(), more), (5, false));
+        let (f, more) = decode_prefix(&gif(5), &opts, 50).unwrap();
+        assert_eq!((f.len(), more), (5, false));
+        assert_eq!(decode(&gif(5), &opts).unwrap().len(), 5, "decode still returns every frame");
+    }
 }
