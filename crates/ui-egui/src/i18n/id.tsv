@@ -3249,3 +3249,5 @@ curves	Smooth	Haluskan
 	Delete Selected Frame	Hapus frame terpilih
 	{seconds} sec.	{seconds} dtk
 	{count} times	{count} kali
+	Frames before	Frame sebelum
+	Frames after	Frame sesudah
