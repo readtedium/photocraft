@@ -145,18 +145,18 @@ pub fn ghosts(app: &PhotocraftApp, ctx: &egui::Context, canvas_doc: DocId) -> Ve
 }
 
 /// What a ghost of frame `i` shows while frame `current` is on the canvas: the layers that look different
-/// there (shown in one and not the other). A layer both frames show the same
+/// there (shown in one and not the other, or at another opacity). A layer both frames show the same
 /// way, such as an opaque Background, would only wash out what is drawn on top of it.
 pub fn ghost_frame(all: &std::collections::HashSet<LayerId>, a: &FrameAnimation, i: usize) -> AnimFrame {
     let (ghost, now) = (&a.frames[i], &a.frames[a.current]);
     let differs = |id: &LayerId| {
         let shown_there = ghost.hidden.binary_search(id).is_err();
         let shown_now = now.hidden.binary_search(id).is_err();
-        shown_there && !shown_now
+        shown_there && (!shown_now || ghost.opacity_of(*id).zip(now.opacity_of(*id)).is_some_and(|(x, y)| (x - y).abs() > 0.001))
     };
     let mut hidden: Vec<LayerId> = all.iter().filter(|id| !differs(id)).copied().collect();
     hidden.sort();
-    AnimFrame { delay_ms: 0, hidden }
+    AnimFrame { delay_ms: 0, hidden, opacities: ghost.opacities.clone() }
 }
 
 /// Frame `i` of the animation as a ghost, composited and reduced.
@@ -190,13 +190,13 @@ mod tests {
     #[test]
     fn a_ghost_shows_only_what_differs_from_the_shown_frame() {
         let all: std::collections::HashSet<LayerId> = [1, 2].map(LayerId).into();
+        let frame = |hidden: Vec<LayerId>, op2: f32| AnimFrame { delay_ms: 0, hidden, opacities: vec![(LayerId(1), 1.0), (LayerId(2), op2)] };
         // Layer 1 (a Background) is shown in both frames; layer 2 only in the ghost frame.
-        let a = FrameAnimation {
-            frames: vec![AnimFrame { delay_ms: 0, hidden: vec![] }, AnimFrame { delay_ms: 0, hidden: vec![LayerId(2)] }],
-            current: 1,
-            loops: Default::default(),
-        };
+        let a = FrameAnimation { frames: vec![frame(vec![], 1.0), frame(vec![LayerId(2)], 1.0)], current: 1, loops: Default::default() };
         assert_eq!(ghost_frame(&all, &a, 0).hidden, [LayerId(1)], "the shared Background stays out of the ghost");
+        // A layer both frames show at different opacities (a fade) is part of the ghost.
+        let fade = FrameAnimation { frames: vec![frame(vec![], 1.0), frame(vec![], 0.4)], current: 1, loops: Default::default() };
+        assert_eq!(ghost_frame(&all, &fade, 0).hidden, [LayerId(1)]);
         // A frame ghosted against itself shows nothing.
         let same = FrameAnimation { current: 0, ..a.clone() };
         assert_eq!(ghost_frame(&all, &same, 0).hidden.len(), 2);

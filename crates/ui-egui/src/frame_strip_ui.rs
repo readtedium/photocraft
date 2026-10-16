@@ -254,6 +254,8 @@ pub struct Strip<'a> {
     pub onion: crate::onion_skin::OnionSkin,
     /// Whether the Onion Skin menu is shown (Options menu in the panel header).
     pub show_onion: bool,
+    /// Whether the Tween menu is shown.
+    pub show_tween: bool,
     pub onion_out: &'a mut Option<crate::onion_skin::OnionSkin>,
     /// A click on a frame, to turn into a selection.
     pub clicked: &'a mut Option<(usize, Click)>,
@@ -263,7 +265,7 @@ pub struct Strip<'a> {
 
 /// Draws the strip and its bar.
 pub fn body(ui: &mut egui::Ui, ctx: &egui::Context, strip: Strip<'_>) {
-    let Strip { doc, revision, animation: a, selection, playing, acts, onion, show_onion, onion_out, clicked, toggle_play } = strip;
+    let Strip { doc, revision, animation: a, selection, playing, acts, onion, show_onion, show_tween, onion_out, clicked, toggle_play } = strip;
     let t = Tokens::get(ctx);
     refresh_thumbs(ctx, doc, revision, a);
 
@@ -323,6 +325,9 @@ pub fn body(ui: &mut egui::Ui, ctx: &egui::Context, strip: Strip<'_>) {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         loop_menu(ui, a.loops, acts);
+        if show_tween {
+            tween_menu(ui, acts);
+        }
         if show_onion {
             onion_menu(ui, onion, onion_out);
         }
@@ -475,6 +480,26 @@ fn loop_menu(ui: &mut egui::Ui, loops: LoopCount, acts: &mut Vec<Act>) {
                 ui.close();
             }
         });
+    });
+}
+
+/// The Tween menu: how many frames to add, then which frame to tween the selected one with.
+fn tween_menu(ui: &mut egui::Ui, acts: &mut Vec<Act>) {
+    drop_menu(ui, tl!("Tween"), |ui| {
+        let id = ui.id().with("tween-count");
+        let mut count: u32 = ui.data_mut(|d| d.get_temp(id)).unwrap_or(3);
+        ui.horizontal(|ui| {
+            ui.label(tl!("Frames to add"));
+            ui.add(egui::DragValue::new(&mut count).range(1..=100));
+        });
+        ui.data_mut(|d| d.insert_temp(id, count));
+        ui.separator();
+        for (with, label) in [("previous", tl!("Previous frame")), ("next", tl!("Next frame")), ("first", tl!("First frame")), ("last", tl!("Last frame"))] {
+            if ui.button(label).clicked() {
+                acts.push(("animation.tween", json!({ "with": with, "frames": count })));
+                ui.close();
+            }
+        }
     });
 }
 

@@ -3986,3 +3986,6 @@ cameraData	Lens	Lens
 	{count} times	{count} kez
 	Frames before	Önceki kareler
 	Frames after	Sonraki kareler
+	Tween	Ara kareler
+	Last frame	Son kare
+	Frames to add	Eklenecek kareler
