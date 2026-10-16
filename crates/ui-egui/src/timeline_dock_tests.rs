@@ -359,3 +359,74 @@ fn a_selection_belongs_to_its_document() {
     h.run_steps(3);
     assert_eq!(selected(&h), [1], "frames 1..3 were selected in the other document");
 }
+
+#[test]
+fn onion_skin_ghosts_the_neighbouring_frames_only_while_on() {
+    let mut h = harness();
+    h.state_mut().run("animation.selectFrame", json!({"frame": 1})).unwrap();
+    h.run_steps(3);
+    let ghosts = |h: &Harness<'static, PhotocraftApp>| crate::onion_skin::ghosts(h.state(), &h.ctx, h.state().session.active().unwrap().doc.id).len();
+    assert_eq!(ghosts(&h), 0, "off by default");
+    h.state_mut().ui.timeline.onion = crate::onion_skin::OnionSkin { enabled: true, before: 1, after: 1, opacity: 50 };
+    assert_eq!(ghosts(&h), 0, "hidden while its menu is not shown");
+    h.state_mut().ui.timeline.show_onion = true;
+    for _ in 0..4 {
+        h.run_steps(2);
+        let _ = ghosts(&h);
+    }
+    assert_eq!(ghosts(&h), 2, "one frame each side of frame 2");
+    h.state_mut().run("animation.selectFrame", json!({"frame": 0})).unwrap();
+    for _ in 0..4 {
+        h.run_steps(2);
+        let _ = ghosts(&h);
+    }
+    assert_eq!(ghosts(&h), 1, "the first frame has nothing before it");
+    h.state_mut().ui.timeline.open = false;
+    assert_eq!(ghosts(&h), 0, "hidden with the Timeline");
+}
+
+#[test]
+fn onion_skin_settings_survive_the_saved_ui_state() {
+    let t = crate::timeline_ui::TimelineUi { onion: crate::onion_skin::OnionSkin { enabled: true, before: 3, after: 2, opacity: 25 }, ..Default::default() };
+    let back: crate::timeline_ui::TimelineUi = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+    assert_eq!(back.onion, t.onion);
+    let old: crate::timeline_ui::TimelineUi = serde_json::from_str(r#"{"open":true}"#).unwrap();
+    assert!(!old.onion.enabled, "state saved before onion skin existed still loads");
+}
+
+#[test]
+fn onion_skin_is_off_the_bar_until_the_options_menu_turns_it_on() {
+    let mut h = harness();
+    assert!(h.query_all_by_label_contains("Onion Skin").next().is_none(), "not shown by default");
+    h.get_by_label("Options").click();
+    h.run_steps(4);
+    h.query_all_by_label_contains("Onion Skin").next().expect("the checkbox").click();
+    h.run_steps(4);
+    assert!(h.state().ui.timeline.show_onion);
+    // Click away to close the Options menu: the bar now has the Onion Skin menu.
+    h.event(egui::Event::PointerMoved(egui::pos2(700.0, 300.0)));
+    h.event(egui::Event::PointerButton { pos: egui::pos2(700.0, 300.0), button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: egui::pos2(700.0, 300.0), button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(4);
+    assert!(h.query_all_by_label_contains("Onion Skin").next().is_some());
+    let t = crate::timeline_ui::TimelineUi { show_onion: true, ..Default::default() };
+    let back: crate::timeline_ui::TimelineUi = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+    assert!(back.show_onion, "remembered");
+}
+
+#[test]
+fn onion_skin_ghosts_belong_to_the_active_documents_canvas() {
+    let mut h = harness();
+    h.state_mut().run("animation.selectFrame", json!({"frame": 1})).unwrap();
+    h.state_mut().ui.timeline.onion = crate::onion_skin::OnionSkin { enabled: true, before: 1, after: 1, opacity: 50 };
+    h.state_mut().ui.timeline.show_onion = true;
+    let active = h.state().session.active().unwrap().doc.id;
+    for _ in 0..4 {
+        h.run_steps(2);
+        let _ = crate::onion_skin::ghosts(h.state(), &h.ctx, active);
+    }
+    assert_eq!(crate::onion_skin::ghosts(h.state(), &h.ctx, active).len(), 2);
+    // A tile or floating window showing another document gets none.
+    assert!(crate::onion_skin::ghosts(h.state(), &h.ctx, photocraft_doc::DocId::fresh()).is_empty());
+}
