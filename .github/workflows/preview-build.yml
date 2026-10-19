@@ -156,17 +156,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: assets
+          path: release-files
           merge-multiple: true
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          cd assets
+          cd release-files
           sha256sum * > SHA256SUMS.txt
           cd ..
-          gh release create "$GITHUB_REF_NAME" assets/* \
+          gh release create "$GITHUB_REF_NAME" release-files/* \
             --prerelease \
             --title "PhotoCraft frame animation preview ($VERSION)" \
             --notes-file .github/preview-release-notes.md
